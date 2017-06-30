@@ -1,0 +1,551 @@
+---
+title: 'Project 2: Modeling and Evaluation'
+subtitle: '<p>CSE6242 - Data and Visual Analytics</p><p>Due: Friday, April 21, 2017
+at 11:59 PM UTC-12:00 on T-Square</p>'
+output:
+pdf_document: default
+html_document: default
+---
+submitted by: Frank Hahn ; gtid:  fhahn3
+
+# Data
+
+We will use the same dataset as Project 1: [`movies_merged`](https://s3.amazonaws.com/content.udacity-data.com/courses/gt-cs6242/project/movies_merged).
+
+# Objective
+
+Your goal in this project is to build a linear regression model that can predict the `Gross` revenue earned by a movie based on other variables. You may use R packages to fit and evaluate a regression model (no need to implement regression yourself). Please stick to linear regression, however.
+
+# Instructions
+
+You should be familiar with using an [RMarkdown](http://rmarkdown.rstudio.com) Notebook by now. Remember that you have to open it in RStudio, and you can run code chunks by pressing *Cmd+Shift+Enter*.
+
+Please complete the tasks below and submit this R Markdown file (as **pr2.Rmd**) containing all completed code chunks and written responses, as well as a PDF export of it (as **pr2.pdf**) which should include all of that plus output, plots and written responses for each task.
+
+_Note that **Setup** and **Data Preprocessing** steps do not carry any points, however, they need to be completed as instructed in order to get meaningful results._
+
+# Setup
+
+Same as Project 1, load the dataset into memory:
+
+```{r}
+load('movies_merged')
+```
+
+This creates an object of the same name (`movies_merged`). For convenience, you can copy it to `df` and start using it:
+
+```{r}
+df = movies_merged
+cat("Dataset has", dim(df)[1], "rows and", dim(df)[2], "columns", end="\n", file="")
+colnames(df)
+```
+
+## Load R packages
+
+Load any R packages that you will need to use. You can come back to this chunk, edit it and re-run to load any additional packages later.
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(tm)
+library(psych)
+```
+
+If you are using any non-standard packages (ones that have not been discussed in class or explicitly allowed for this project), please mention them below. Include any special instructions if they cannot be installed using the regular `install.packages('<pkg name>')` command.
+
+**Non-standard packages used**: None
+
+# Data Preprocessing
+
+Before we start building models, we should clean up the dataset and perform any preprocessing steps that may be necessary. Some of these steps can be copied in from your Project 1 solution. It may be helpful to print the dimensions of the resulting dataframe at each step.
+
+## 1. Remove non-movie rows
+
+```{r}
+# TODO: Remove all rows from df that do not correspond to movies
+df <-subset(df, df$Type=="movie")
+```
+
+## 2. Drop rows with missing `Gross` value
+
+Since our goal is to model `Gross` revenue against other variables, rows that have missing `Gross` values are not useful to us.
+
+```{r}
+# TODO: Remove rows with missing Gross value
+df<- df[!is.na(df$Gross),]
+df<- df[!(df$Gross==0),]
+```
+
+## 3. Exclude movies released prior to 2000
+
+Inflation and other global financial factors may affect the revenue earned by movies during certain periods of time. Taking that into account is out of scope for this project, so let's exclude all movies that were released prior to the year 2000 (you may use `Released`, `Date` or `Year` for this purpose).
+
+```{r}
+# TODO: Exclude movies released prior to 2000
+df <- df[df$Year>2000,]
+```
+
+## 4. Eliminate mismatched rows
+
+_Note: You may compare the `Released` column (string representation of release date) with either `Year` or `Date` (numeric representation of the year) to find mismatches. The goal is to avoid removing more than 10% of the rows._
+
+```{r}
+# TODO: Remove mismatched rows
+
+# convert 
+df$Released_year<- as.numeric(format(df$Released,'%Y'))
+
+#need to compare Year and Released_year
+sum(is.na(df$Released)&!is.na(df$Gross))
+sum(df$Year==df$Released_year, na.rm=TRUE)
+
+# df[is.na(df$Released)&!is.na(df$Gross),]
+mismatchexpression <- (abs(df$Year-df$Released_year)<2)
+# df$Gross[!is.na(df$Gross)]
+
+df_mismatch <- subset(df, mismatchexpression)
+
+DFwithgross <-sum(!is.na(df$Gross))
+DFMMwithgross<- sum(!is.na(df_mismatch$Gross))
+deleted <- (DFwithgross-DFMMwithgross)/DFwithgross*100
+cat("I deleted ", deleted,"% of the rows with gross")
+
+df <- df_mismatch
+
+```
+
+## 5. Drop `Domestic_Gross` column
+
+`Domestic_Gross` is basically the amount of revenue a movie earned within the US. Understandably, it is very highly correlated with `Gross` and is in fact equal to it for movies that were not released globally. Hence, it should be removed for modeling purposes.
+
+```{r}
+# TODO: Exclude the `Domestic_Gross` column
+df <-df[ , !(names(df) %in% "Domestic_Gross")]
+```
+
+## 6. Process `Runtime` column
+
+```{r}
+# TODO: Replace df$Runtime with a numeric column containing the runtime in minutes
+
+converttoMin <- function(movietime){
+  #if contains h then convert to minutes
+  if (grepl("h", movietime)) {
+    # cat("Contains h")
+    timelist =strsplit(movietime, " ")
+    hour = strtoi (timelist[[1]][1])
+    min = strtoi (timelist[[1]][3])
+    min = hour*60+min
+    #contains min, strip to the front, capture number
+  } else if (grepl("min", movietime)) {
+    # cat("contains just min")
+    timelist =strsplit(movietime, " ")
+    min = strtoi (timelist[[1]][1])
+    #else "N/A"
+  } else {
+    # cat("N/A")
+    min="N/A"
+  }
+  return(min)
+}
+# converttoMin(movietime)
+
+suppressWarnings(df$Runtime <- lapply(df$Runtime, converttoMin ))
+suppressWarnings(df$Runtime <- as.numeric(df$Runtime))
+```
+
+Perform any additional preprocessing steps that you find necessary, such as dealing with missing values or highly correlated columns (feel free to add more code chunks, markdown blocks and plots here as necessary).
+
+```{r}
+# TODO(optional): Additional preprocessing
+
+df <-df[ , !(names(df) %in% "tomatoRotten")]
+```
+
+
+_**Note**: Do NOT convert categorical variables (like `Genre`) into binary columns yet. You will do that later as part of a model improvement task._
+
+## Final preprocessed dataset
+
+Report the dimensions of the preprocessed dataset you will be using for modeling and evaluation, and print all the final column names. (Again, `Domestic_Gross` should not be in this list!)
+
+```{r}
+# TODO: Print the dimensions of the final preprocessed dataset and column names
+print(dim(df))
+colnames(df)
+```
+
+# Evaluation Strategy
+
+In each of the tasks described in the next section, you will build a regression model. In order to compare their performance, use the following evaluation procedure every time:
+
+1. Randomly divide the rows into two sets of sizes 5% and 95%.
+2. Use the first set for training and the second for testing.
+3. Compute the Root Mean Squared Error (RMSE) on the train and test sets.
+4. Repeat the above data partition and model training and evaluation 10 times and average the RMSE results so the results stabilize.
+5. Repeat the above steps for different proportions of train and test sizes: 10%-90%, 15%-85%, ..., 95%-5% (total 19 splits including the initial 5%-95%).
+6. Generate a graph of the averaged train and test RMSE as a function of the train set size (%).
+```{r}
+# 1. Randomly divide the rows into two sets of sizes 5% and 95%.
+
+numeric.only <- function(df.train){
+  nums <- sapply(df.train, is.numeric)
+  df.train   <- df.train[,nums]
+  return(df.train)
+}
+
+
+sampling.splits<- seq(.05,.95, .05)
+
+sample.train.test.data <- function(random=.05, df.tosample){
+  # random <- .05
+  sample.count <- nrow(df.tosample)
+  sample.index <- sample(sample.count, sample.count*random)
+  df.train <<-df.tosample[sample.index,]
+  df.test <<-df.tosample[-sample.index,]
+}
+
+sample.train.test.data(random=.05, df)
+
+# 2. Use the first set for training and the second for testing.
+# df.train<-numeric.only(df.train)
+# mod.test <- lm(df.train$Gross~., data=df.train)
+# summary(mod.test)
+
+# 3. Compute the Root Mean Squared Error (RMSE) on the train and test sets.
+get.RMSE <- function(lm.model, df.to.predict){
+  predicted.value <- predict.lm(lm.model, df.to.predict)
+  difference <- predicted.value-df.to.predict$Gross
+  difference <- as.matrix(difference)
+  count.of.good.predictions<-sum(!is.na(difference))
+  RMSE <-sqrt(sum(difference^2, na.rm = TRUE)/count.of.good.predictions)
+  return(RMSE)
+}
+
+getRMSE.ten.times <- function(df, model.cmd="df.train$Gross~."){
+  iteration=20
+df.rmse <- data.frame(numeric(iteration*19),numeric(iteration*19),numeric(iteration*19), stringsAsFactors = FALSE )
+colnames(df.rmse) <- c("random","rmse.train", "rmse.test")
+count=0
+
+for (random in sampling.splits){
+  
+  for (i in 1:iteration){
+    sample.train.test.data(random, numeric.only(df))
+    mod.test <- lm(as.formula(model.cmd), data=df.train)
+    RMSE.train <-get.RMSE(mod.test, df.train)
+    RMSE.test <-get.RMSE(mod.test, df.test)
+    df.rmse[i+count,]<- c(random, RMSE.train, RMSE.test)
+  }
+  count=count+iteration
+}
+print(summary(mod.test))
+return(df.rmse)
+}
+
+# 4. Repeat the above data partition and model training and evaluation 10 times and average the RMSE results so the results stabilize.
+# 5. Repeat the above steps for different proportions of train and test sizes: 10%-90%, 15%-85%, ..., 95%-5% (total 19 splits including the initial 5%-95%).
+# 6. Generate a graph of the averaged train and test RMSE as a function of the train set size (%).
+```
+
+You can define a helper function that applies this procedure to a given model and reuse it.
+
+# Tasks
+
+Each of the following tasks is worth 20 points. Remember to build each model as specified, evaluate it using the strategy outlined above, and plot the training and test errors by training set size (%).
+
+## 1. Numeric variables
+
+Use linear regression to predict `Gross` based on all available _numeric_ variables.
+
+```{r}
+# TODO: Build & evaluate model 1 (numeric variables only)
+df.q1 <- numeric.only(df)
+df.rmse <- getRMSE.ten.times(numeric.only(df.q1), model.cmd="df.train$Gross~.")
+df.rmse.avg <- aggregate(df.rmse,list(df.rmse$random),data=df.rmse,FUN="mean") 
+```
+
+```{r}
+print(df.rmse.avg)
+ggplot(df.rmse.avg, aes(x= df.rmse.avg$random))+geom_line(aes(y = df.rmse.avg$rmse.train, colour = 'Train Data')) + geom_line(aes(y = df.rmse.avg$rmse.test, colour = 'Test Data')) +labs(title="RMSE on train / test data by sampling percent ", x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.train, geom = "line")+ labs(title=paste("RMSE on train data by sampling percent ", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.train[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+
+```
+
+
+```{r}
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.test, geom = "line")+labs(title=paste("RMSE on test data by sampling percent", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.test[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+```
+
+
+**Q**: List all the numeric variables you used.
+
+**A**:  
+[1] "Year"              "Runtime"           "imdbRating"        "imdbVotes"         "tomatoMeter"      
+ [6] "tomatoRating"      "tomatoReviews"     "tomatoFresh"       "tomatoUserMeter"   "tomatoUserRating" 
+[11] "tomatoUserReviews" "Budget"            "Gross"             "Date"              "Released_year"    
+
+## 2. Feature transformations
+
+Try to improve the prediction quality from **Task 1** as much as possible by adding feature transformations of the numeric variables. Explore both numeric transformations such as power transforms and non-numeric transformations of the numeric variables like binning (e.g. `is_budget_greater_than_3M`).
+
+```{r}
+# TODO: Build & evaluate model 2 (transformed numeric variables only)
+df.q2 <- df.q1
+
+df.q2$Budgetbw50_100[(df.q2$Budget>5e7)&(df.q2$Budget<1e8)]=1
+df.q2$Budgetbw50_100[!(df.q2$Budget>5e7)&(df.q2$Budget<1e8)]=0
+
+
+df.q2$imdbVotesless300k[(df.q2$imdbVotes<300000)]=1
+df.q2$imdbVotesless300k[!(df.q2$imdbVotes<300000)]=0
+
+df.q2$imdbVotessqrt<-log(df.q2$imdbVotes)
+df.q2$imdbVotessqrtmore350[(df.q2$imdbVotessqrt<350)]=1
+df.q2$imdbVotessqrtmore350[!(df.q2$imdbVotessqrt<350)]=0
+
+# df.q2$imdbVotesless300k[(df.q2$imdbVotes<300000)&(df.q2$imdbVotes>100000)]=1
+# df.q2$imdbVotesless300k[!(df.q2$imdbVotes<300000)&(df.q2$imdbVotes>100000)]=0
+
+suppressWarnings(
+df.rmse <- getRMSE.ten.times(df.q2, model.cmd="Gross~."))
+suppressWarnings(
+df.rmse.avg <- aggregate(df.rmse,list(df.rmse$random),data=df.rmse,FUN="mean") )
+print(df.rmse.avg)
+
+ggplot(df.q1, aes(sqrt(imdbVotes), Gross))+geom_point()+ylim(0,1e9)+
+   geom_vline(xintercept = 350, color="green")
+  # geom_vline(xintercept = 300000, color="green")
+  
+```
+
+
+```{r}
+ggplot(df.rmse.avg, aes(x= df.rmse.avg$random))+geom_line(aes(y = df.rmse.avg$rmse.train, colour = 'Train Data')) + geom_line(aes(y = df.rmse.avg$rmse.test, colour = 'Test Data')) +labs(title="RMSE on train / test data by sampling percent ", x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.train, geom = "line")+ labs(title=paste("RMSE on train data by sampling percent ", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.train[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+```
+
+```{r}
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.test, geom = "line")+labs(title=paste("RMSE on test data by sampling percent", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.test[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+```
+
+**Q**: Explain which transformations you used and why you chose them.
+
+**A**: I focussed on two variables that had higher t-values when I ran my regression model: budget and imdbVotes.  Initially I conducted some exploratory analysis where I tried log, x^2, and sqrt(x), and these did not result in improvement in decreased RMSE.
+
+However when using binning on budget I iterated and found that there improvements with RMSE.  When viewing the plot of Budget vs Gross it seems there is differentiation between normal budgeted movies and the ones that had high gross.  After expermienting with budget > 1e8 and other permutations, I settled on the budget range of 50 to 100m.   I hypothesized that budget within this range seemed to have greater gross. When plotting a histogram of the gross of movies within the range and those outside of the range, the plots show a significant difference.
+
+I was unable to extract improvements from imdbVotes despite trying multiple transformations to include sqrt.  I hypothesized that this transformation made the data more linear; however, it didn't result in lower RMSE.
+
+Ultimately, with a baseline (Q1) of ~ $95M RMSE on 95% sampling of test data, I was able to improve the model by 31M.
+
+```{r}
+ggplot(df.q1, aes(Budget, Gross))+geom_point()+ylim(0,1e9) + 
+  geom_vline(xintercept = 5e7, colour =("green"))+
+  geom_vline(xintercept = 1e8, colour =("green"))
+```
+
+```{r}
+qplot(df.q2$Gross[df.q2$Budgetbw50_100==1])+ggtitle("Histogram of movies with budget from 50-100M")+xlab("Gross")
+qplot(df.q2$Gross[df.q2$Budgetbw50_100==0])+ggtitle("Histogram of movies with budget from not 50-100M")+xlab("Gross")
+```
+
+
+## 3. Non-numeric variables
+
+Write code that converts genre, actors, directors, and other categorical variables to columns that can be used for regression (e.g. binary columns as you did in Project 1). Also process variables such as awards into more useful columns (again, like you did in Project 1). Now use these converted columns only to build your next model.
+
+```{r echo=FALSE }
+# TODO: Build & evaluate model 3 (converted non-numeric variables only)
+df.q3 <- df[,sapply(df, is.numeric)==FALSE]
+df.q3$Gross <- df$Gross
+
+df.q3$Genre <- gsub("[][!#$%()*,.:;<=>@^_|~.{}]", "", df.q3$Genre)
+df.q3$Genre <- tolower(df.q3$Genre)
+
+Genre_cats <-Corpus(VectorSource(df.q3$Genre))
+Genre_dict <- DocumentTermMatrix(Genre_cats)
+
+Genre_categories <- findFreqTerms(Genre_dict, 1)
+
+df.q3[Genre_categories]<-NA
+
+for (genre in Genre_categories){
+  # cat(genre)
+  df.q3[[genre]][grepl(genre, df.q3$Genre)]=1
+  df.q3[[genre]][!grepl(genre, df.q3$Genre)]=0
+}
+
+# TODO: Convert Awards to 2 numeric columns: wins and nominations
+df$Awards<- tolower(df$Awards)
+
+winphrase = "win|won"
+nomphrase ="nomination|nominated"
+
+convertawardsWin <- function(awardtext){
+win <- 0
+awardarray <-strsplit(awardtext, split="[.&]")
+for (phrase in awardarray[[1]]){
+  number <- unique(na.omit(as.numeric(unlist(strsplit(unlist(phrase), "[^0-9]+")))))
+  if(grepl(winphrase, phrase)){win=win+number
+  }
+}
+return(win)
+}
+
+convertawardsNoms <- function(awardtext){
+nom<-0
+awardarray <-strsplit(awardtext, split="[.&]")
+for (phrase in awardarray[[1]]){
+  # cat(phrase, "\n")
+  number <- unique(na.omit(as.numeric(unlist(strsplit(unlist(phrase), "[^0-9]+")))))
+  if(grepl(nomphrase, phrase)){nom=nom+number
+  }
+}
+return(nom)
+}
+# convertawardsWin(awardtext)
+# convertawardsNoms(awardtext)
+df$Wins <- lapply(df$Awards, convertawardsWin )
+df$Nominations <- lapply(df$Awards, convertawardsNoms )
+df$Wins <- as.numeric(df$Wins)
+df$Nominations <- as.numeric(df$Nominations)
+
+
+df.q3$Released_month<- as.numeric(format(df.q3$Released,'%m'))
+
+summer <- c(5,6,7)
+winter<-c(11,12)
+
+df.q3$winter[df.q3$Released_month==11 | df.q3$Released_month==12]=1
+df.q3$winter[!(df.q3$Released_month==11|df.q3$Released_month==12)]=0
+df.q3$summer[(df.q3$Released_month==5 | df.q3$Released_month==6|df.q3$Released_month==7)]=1
+df.q3$summer[!(df.q3$Released_month==5 | df.q3$Released_month==6|df.q3$Released_month==7)]=0
+
+df.q3$is_english[grepl("English", df.q3$Language)]=1
+df.q3$is_english[!grepl("English", df.q3$Language)]=0
+
+df.q3$is_fresh[grepl("fresh", df.q3$tomatoImage)]=1
+df.q3$is_fresh[!grepl("fresh", df.q3$tomatoImage)]=0
+df.q3$is_certified[grepl("certified", df.q3$tomatoImage)]=1
+df.q3$is_certified[!grepl("certified", df.q3$tomatoImage)]=0
+
+highgrossdirectors<-c("Steven Spielberg", "Michael Bay","Robert Zemeckis","James Cameron",
+                      "Peter Jackson","Ron Howard", "George Lucas",
+                      "Tim Burton",  "Chris Columbus",
+                      "Christopher Nolan", "Sam Raimi", "Gore Verbinski", "Clint Eastwood", "Lee Unkrich", "David Yates", "Ridley Scott", "Roland Emmerich", "Andrew Adamson", "Richard Donner", "Dennis Dugan")
+# source IMDB http://www.imdb.com/list/ls070938624/
+
+df.q3$Director_top=0
+df.q3$Director_top[grepl(paste(highgrossdirectors,collapse="|"), df.q3$Director)]=1
+
+highgrossactors<- c("Harrison Ford", "Samuel L. Jackson", "Morgan Freeman",
+                    "Tom Hanks", "Robert Downey Jr.", "Eddie Murphy", "Tom Cruise",
+                    "Johnny Depp", "Michael Caine", "Gary Oldman",
+                    "Scarlett Johansson", "Robin Williams", 
+                    "Bruce Willis", "Stellan Skarsgard", "Anthony Daniels",
+                    "Ian McKellen", "Stanley Tucci", "Robert De Niro", "Cameron Diaz", "Matt Damon", "Liam Neeson", "Andy Serkis", "Will Smith", "Ben Stiller",
+                    "Orlando Bloom", "Woody Harrelson", "Cate Blanchett",
+                    "Julia Roberts", "Elizabeth Banks", "Emma Watson", "Brad Pitt","Adam Sandler", "Daniel Radcliffe")
+
+#Source http://www.imdb.com/list/ls074328260/
+
+df.q3$Actors_top=0
+df.q3$Actors_top[grepl(paste(highgrossactors,collapse="|"), df.q3$Actors)]=1
+# df.q3$Actors_top[grepl(paste(highgrossactors,collapse="|"), df.q3$Actors)]
+
+
+suppressWarnings(df.rmse <- getRMSE.ten.times(df.q3, model.cmd="Gross~."))
+suppressWarnings(df.rmse.avg <- aggregate(df.rmse,list(df.rmse$random),data=df.rmse,FUN="mean") )
+print(df.rmse.avg)
+ggplot(df.rmse.avg, aes(x= df.rmse.avg$random))+geom_line(aes(y = df.rmse.avg$rmse.train, colour = 'Train Data')) + geom_line(aes(y = df.rmse.avg$rmse.test, colour = 'Test Data')) +labs(title="RMSE on train / test data by sampling percent ", x="Sampling %",y= "RMSE")
+```
+
+
+```{r}
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.train, geom = "line")+ labs(title=paste("RMSE on train data by sampling percent ", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.train[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.test, geom = "line")+labs(title=paste("RMSE on test data by sampling percent", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.test[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+```
+
+
+**Q**: Explain which categorical variables you used, and how you encoded them into features.
+
+**A**: My approach for including categorical variables intended to use hypothesises from project 1.
+
+- Certain genres correlate with higher gross
+- Summer and Winter months correlate with higher gross
+- Rottentomatoes fresh and certified are more highly critically acclaimed so are higher gross
+- Certain top actors and directors make higher gross (source IMDB)
+
+For genre I used text recognition on the genre column,  e.g., if drama, df$drama=1
+
+For summer and winter months, I created comparisons for the summer and winter months against released month. winter=1
+
+For rotten tomatoes image provides another source of info that is proxy for critical acclaim.  I used grepl to detect whether the text is fresh and certfied and made them into 0 and 1.
+
+Lastly, for those movies that have top directors or top actors, did a grepl search for IMDB top grossing actors and directors.  If present Director_top and Actor_top is 1.
+
+Ultimately the performance of the non-numeric model performed poorly compared to the numeric.  Q1 ~ $95M vs non-numeric 144M
+
+## 4. Numeric and categorical variables
+
+Try to improve the prediction quality as much as possible by using both numeric and non-numeric variables from **Tasks 2 & 3**.
+
+```{r}
+# TODO: Build & evaluate model 4 (numeric & converted non-numeric variables)
+
+drops <- c("Gross")
+df.q4 <- cbind.data.frame(df.q2, df.q3[, !(names(df.q3) %in% drops)])
+
+suppressWarnings(df.rmse <- getRMSE.ten.times(df.q4, model.cmd="Gross~."))
+suppressWarnings(df.rmse.avg <- aggregate(df.rmse,list(df.rmse$random),data=df.rmse,FUN="mean") )
+
+print(df.rmse.avg)
+
+ggplot(df.rmse.avg, aes(x= df.rmse.avg$random))+geom_line(aes(y = df.rmse.avg$rmse.train, colour = 'Train Data')) + geom_line(aes(y = df.rmse.avg$rmse.test, colour = 'Test Data')) +labs(title="RMSE on train / test data by sampling percent ", x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.train, geom = "line")+ labs(title=paste("RMSE on train data by sampling percent ", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.train[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.test, geom = "line")+labs(title=paste("RMSE on test data by sampling percent", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.test[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+```
+
+## 5. Additional features
+
+Now try creating additional features such as interactions (e.g. `is_genre_comedy` x `is_budget_greater_than_3M`) or deeper analysis of complex variables (e.g. text analysis of full-text columns like `Plot`).
+
+```{r warning=FALSE}
+# TODO: Build & evaluate model 5 (numeric, non-numeric and additional features)
+# df.rmse <- getRMSE.ten.times(df.q4, model.cmd="Gross~.+summer*action+winter*animation+ summer*animation+ winter*drama+ summer*drama")
+df.rmse <- getRMSE.ten.times(df.q4, model.cmd="Gross~.+summer*action+ summer*animation+imdbVotes*Budget")
+df.rmse.avg <- aggregate(df.rmse,list(df.rmse$random),data=df.rmse,FUN="mean") 
+print(df.rmse.avg)
+
+ggplot(df.rmse.avg, aes(x= df.rmse.avg$random))+geom_line(aes(y = df.rmse.avg$rmse.train, colour = 'Train Data')) + geom_line(aes(y = df.rmse.avg$rmse.test, colour = 'Test Data')) +labs(title="RMSE on train / test data by sampling percent ", x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.train, geom = "line")+ labs(title=paste("RMSE on train data by sampling percent ", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.train[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+
+qplot(x= df.rmse.avg$random, y=df.rmse.avg$rmse.test, geom = "line")+labs(title=paste("RMSE on test data by sampling percent", "(@95% RMSE =", as.integer(df.rmse.avg$rmse.test[19]/ 1e6) , "M)", sep=" "), x="Sampling %",y= "RMSE")
+
+```
+
+**Q**: Explain what new features you designed and why you chose them.
+
+**A**:   I built on the the q4 model by creating interaction between some features.  
+
+Given what I know movies and how in the winter and summer they have "summer action hit" or winter animation movies, analyzing the interaction of genre and winter and summer, I thought would lead to lower RMSE models.
+
+Therefore, I created the following combinations in addition to the other features I created in previous questions:
+
+summer*action
+winter*animation
+summer*animation
+winter*drama
+summer*drama
+imdbVotes*Budget
+
+However summer&action,  summer&animation, and imdbVotes&Budget proved the best metrics. 
+
+Ultimately, the creating the interaction variables achieved incremental improvement of about 5-10M.  (Q4 67M to Q5 59M)
