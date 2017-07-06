@@ -1,6 +1,6 @@
 # machinelearning_portfolio
 
-## Showcase of various time of AI/Machine learning implementations
+## Showcase of various types of AI/Machine learning implementations
 
 ### handwriting_image_classifer_using_logistic_regression	
 Using R, I implemented logistic regression using batch gradient descent to classify handwritten images (R)
