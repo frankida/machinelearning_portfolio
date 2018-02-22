@@ -4,8 +4,6 @@
 
 ### handwriting_image_classifer_using_logistic_regression	
 Using R, I implemented logistic regression using batch gradient descent to classify handwritten images (R)
-### machinelearning_trading_sim	
-Using random forests, bagging, and a q-learner, I created a predictive model for stock closing price to make automated trades (Python)
 ### moviedata_linear_regression modelling	
 Using various feature engineering techniques to include binning and text processing, created linear regression to predict move gross revenue (R)
 ### moviesdata_analysis	
